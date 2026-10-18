@@ -32,22 +32,6 @@ static bool getStackAdjustmentSize(const BinaryContext &BC, const MCInst &Inst,
       std::make_pair(0, 0LL));
 }
 
-static bool isIndifferentToSP(const MCInst &Inst, const BinaryContext &BC) {
-  if (BC.MIB->isCFI(Inst))
-    return true;
-
-  const MCInstrDesc &II = BC.MII->get(Inst.getOpcode());
-  if (BC.MIB->isTerminator(Inst) ||
-      II.hasImplicitDefOfPhysReg(BC.MIB->getStackPointer(), BC.MRI.get()) ||
-      II.hasImplicitUseOfPhysReg(BC.MIB->getStackPointer()))
-    return false;
-
-  for (const MCOperand &Operand : MCPlus::primeOperands(Inst))
-    if (Operand.isReg() && Operand.getReg() == BC.MIB->getStackPointer())
-      return false;
-  return true;
-}
-
 static bool shouldProcess(const BinaryFunction &Function) {
   return Function.isSimple() && Function.hasCFG() && !Function.isIgnored();
 }
@@ -67,8 +51,11 @@ void AllocCombinerPass::combineAdjustments(BinaryFunction &BF) {
     SmallVector<MCInst *, 2> ToErase;
     MCInst *Prev = nullptr;
     for (MCInst &Inst : llvm::reverse(BB)) {
-      if (isIndifferentToSP(Inst, BC))
-        continue; // Skip updating Prev
+      // Folding across any instruction other than CFI can leave live stack data
+      // below the stack pointer while that instruction runs, and a stale CFA
+      // rule at it.
+      if (BC.MIB->isCFI(Inst))
+        continue;
 
       int64_t Adjustment = 0LL;
       if (!Prev || !BC.MIB->isStackAdjustment(Inst) ||

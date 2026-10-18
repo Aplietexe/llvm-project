@@ -14,6 +14,8 @@
 namespace llvm {
 namespace bolt {
 
+/// Combines stack pointer adjustments in a basic block that have only CFI
+/// between them into one adjustment.
 class AllocCombinerPass : public BinaryFunctionPass {
   /// Stats aggregating variables
   uint64_t NumCombined{0};
